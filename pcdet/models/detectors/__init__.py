@@ -15,6 +15,7 @@ from .CT3D import CT3D
 from .CT3D_3CAT import CT3D_3CAT
 from .transfusion import TransFusion
 from .voxelnext import VoxelNeXt
+from .transfusion_v2 import TransFusionV2
 
 __all__ = {
     'Detector3DTemplate': Detector3DTemplate,
@@ -34,6 +35,7 @@ __all__ = {
     'CT3D_3CAT': CT3D_3CAT,
     'TransFusion': TransFusion,
     'VoxelNeXt': VoxelNeXt,
+    'TransFusionV2': TransFusionV2,
 }
 
 

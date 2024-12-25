@@ -1,6 +1,8 @@
 from functools import partial
 
+import torch
 import numpy as np
+from PIL import Image
 
 from ...utils import common_utils
 from . import augmentor_utils, database_sampler
@@ -249,6 +251,54 @@ class DataAugmentor(object):
                                                                  pyramids)
         data_dict['gt_boxes'] = gt_boxes
         data_dict['points'] = points
+        return data_dict
+
+    def set_lidar_aug_matrix(self, data_dict=None, config=None):
+        """
+            Get lidar augment matrix (4 x 4), which are used to recover orig point coordinates.
+        """
+        if data_dict is None:
+            return partial(self.set_lidar_aug_matrix, config=config)
+        lidar_aug_matrix = np.eye(4)
+        if 'flip_y' in data_dict.keys():
+            flip_x = data_dict['flip_x']
+            flip_y = data_dict['flip_y']
+            if flip_x:
+                lidar_aug_matrix[:3,:3] = np.array([[1, 0, 0], [0, -1, 0], [0, 0, 1]]) @ lidar_aug_matrix[:3,:3]
+            if flip_y:
+                lidar_aug_matrix[:3,:3] = np.array([[-1, 0, 0], [0, 1, 0], [0, 0, 1]]) @ lidar_aug_matrix[:3,:3]
+        if 'noise_rot' in data_dict.keys():
+            noise_rot = data_dict['noise_rot']
+            lidar_aug_matrix[:3,:3] = common_utils.angle2matrix(torch.tensor(noise_rot)) @ lidar_aug_matrix[:3,:3]
+        if 'noise_scale' in data_dict.keys():
+            noise_scale = data_dict['noise_scale']
+            lidar_aug_matrix[:3,:3] *= noise_scale
+        if 'noise_translate' in data_dict.keys():
+            noise_translate = data_dict['noise_translate']
+            lidar_aug_matrix[:3,3:4] = noise_translate.T
+        data_dict['lidar_aug_matrix'] = lidar_aug_matrix
+        return data_dict
+
+    def imgaug(self, data_dict=None, config=None):
+        if data_dict is None:
+            return partial(self.imgaug, config=config)
+        imgs = data_dict["camera_imgs"]
+        img_process_infos = data_dict['img_process_infos']
+        new_imgs = []
+        for img, img_process_info in zip(imgs, img_process_infos):
+            flip = False
+            if config.RAND_FLIP and np.random.choice([0, 1]):
+                flip = True
+            rotate = np.random.uniform(*config.ROT_LIM)
+            # aug images
+            if flip:
+                img = img.transpose(method=Image.FLIP_LEFT_RIGHT)
+            img = img.rotate(rotate)
+            img_process_info[2] = flip
+            img_process_info[3] = rotate
+            new_imgs.append(img)
+
+        data_dict["camera_imgs"] = new_imgs
         return data_dict
 
     def forward(self, data_dict):
