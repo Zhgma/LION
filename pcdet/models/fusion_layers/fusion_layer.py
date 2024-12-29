@@ -123,16 +123,21 @@ class FusionLayer(nn.Module):
             voxel_batch_idx = voxel_coords[:, 0] == b
             # cur_coords = reference_voxel[b].reshape(-1, 3)[:, :3].clone()
             cur_coords = torch.flip(voxel_coords[voxel_batch_idx, 1:], dims=[1]).clone()
-            cur_img_aug_matrix = img_aug_matrix[b] if not isinstance(img_aug_matrix, list) else img_aug_matrix[0][b]
-            cur_lidar_aug_matrix = lidar_aug_matrix[b] if not isinstance(lidar_aug_matrix, list) else lidar_aug_matrix[0][b]
+            if img_aug_matrix is not None:
+                cur_img_aug_matrix = img_aug_matrix[b] if not isinstance(img_aug_matrix, list) else img_aug_matrix[0][b]
+            if lidar_aug_matrix is not None:
+                cur_lidar_aug_matrix = lidar_aug_matrix[b] if not isinstance(lidar_aug_matrix, list) else lidar_aug_matrix[0][b]
             cur_lidar2image = lidar2image[b] if not isinstance(lidar2image, list) else lidar2image[0][b]
 
+            cur_coords = cur_coords.to(dtype=cur_lidar2image.dtype)
             # inverse aug for pseudo points
-            cur_coords = cur_coords.to(dtype=cur_lidar_aug_matrix.dtype)
-            cur_coords -= cur_lidar_aug_matrix[:3, 3]
-            cur_coords = torch.inverse(cur_lidar_aug_matrix[:3, :3]).matmul(
-                cur_coords.transpose(1, 0)
-            )
+            if lidar_aug_matrix is not None:
+                cur_coords -= cur_lidar_aug_matrix[:3, 3]
+                cur_coords = torch.inverse(cur_lidar_aug_matrix[:3, :3]).matmul(
+                    cur_coords.transpose(1, 0)
+                )
+            else:
+                cur_coords = cur_coords.transpose(1, 0)
 
             # lidar2image
             cur_coords = cur_lidar2image[:, :3, :3].matmul(cur_coords)  # cur_coords: [3, N]
@@ -151,8 +156,9 @@ class FusionLayer(nn.Module):
             cur_coords[:, :2, :] /= cur_coords[:, 2:3, :]
 
             # imgaug
-            cur_coords = cur_img_aug_matrix[:, :3, :3].matmul(cur_coords)
-            cur_coords += cur_img_aug_matrix[:, :3, 3].reshape(-1, 3, 1)
+            if img_aug_matrix is not None:
+                cur_coords = cur_img_aug_matrix[:, :3, :3].matmul(cur_coords)
+                cur_coords += cur_img_aug_matrix[:, :3, 3].reshape(-1, 3, 1)
             cur_coords = cur_coords[:, :2, :].transpose(1, 2)
 
 
