@@ -387,7 +387,7 @@ class MambaBackbone2D(nn.Module):
                 # diffusion,
                 # shift,
                 # diff_scale,
-                downsample=DownSampling,
+                downsample=DownSampling if idx < num_layers - 1 else None,
                 with_cp=with_cp
             )
             for idx in range(num_layers)])
