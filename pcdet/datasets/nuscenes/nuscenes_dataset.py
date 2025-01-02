@@ -13,7 +13,7 @@ from PIL import Image
 
 
 class NuScenesDataset(DatasetTemplate):
-    def __init__(self, dataset_cfg, class_names, training=True, root_path=None, logger=None, split=1.0):
+    def __init__(self, dataset_cfg, class_names, training=True, root_path=None, logger=None):
         root_path = (root_path if root_path is not None else Path(dataset_cfg.DATA_PATH))
         # root_path = (root_path if root_path is not None else Path(dataset_cfg.DATA_PATH)) / dataset_cfg.VERSION
         super().__init__(
@@ -26,7 +26,6 @@ class NuScenesDataset(DatasetTemplate):
             self.camera_image_config = self.camera_config.IMAGE
         else:
             self.use_camera = False
-        self.split = split
         self.include_nuscenes_data(self.mode)
         if self.training and self.dataset_cfg.get('BALANCED_RESAMPLING', False):
             self.infos = self.balanced_infos_resampling(self.infos)
@@ -355,16 +354,16 @@ class NuScenesDataset(DatasetTemplate):
             pickle.dump(all_db_infos, f)
 
 
-def create_nuscenes_info(version, data_path, save_path, max_sweeps=10, with_cam=False):
+def create_nuscenes_info(version, data_path, save_path, max_sweeps=10, with_cam=False, split=1):
     from nuscenes.nuscenes import NuScenes
     from nuscenes.utils import splits
     from . import nuscenes_utils
-    data_path = data_path / version
-    save_path = save_path / version
+    # data_path = data_path / version
+    # save_path = save_path / version
 
     assert version in ['v1.0-trainval', 'v1.0-test', 'v1.0-mini']
     if version == 'v1.0-trainval':
-        train_scenes = splits.train[: len(splits.train) // self.split]
+        train_scenes = splits.train[: len(splits.train) // split]
         # train_scenes = splits.train
         val_scenes = splits.val
     elif version == 'v1.0-test':
