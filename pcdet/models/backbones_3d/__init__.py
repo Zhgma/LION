@@ -11,6 +11,7 @@ from .spconv_backbone_sed import HEDNet
 from .hednet import SparseHEDNet, SparseHEDNet2D
 from .lion_backbone_one_stride import LION3DBackboneOneStride, LION3DBackboneOneStride_Sparse
 from .fusion_lion_backbone import FusionLION3DBackbone
+from .lion_backbone_hilbert import LION3DBackboneHilbert
 
 __all__ = {
     'VoxelBackBone8x': VoxelBackBone8x,
@@ -29,4 +30,5 @@ __all__ = {
     'LION3DBackboneOneStride': LION3DBackboneOneStride,
     'LION3DBackboneOneStride_Sparse': LION3DBackboneOneStride_Sparse,
     'FusionLION3DBackbone': FusionLION3DBackbone,
+    'LION3DBackboneHilbert': LION3DBackboneHilbert,
 }
