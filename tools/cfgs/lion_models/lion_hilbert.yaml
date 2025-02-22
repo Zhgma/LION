@@ -87,7 +87,7 @@ MODEL:
             d_conv: 4
             expand: 2
             drop_path: 0.2
-        TEMPLATE_PATH: '../data/hilbert/curve_template_3d_rank_9.pth'
+        TEMPLATE_PATH: '../data/hilbert'
         TEMPLATE_RANK: [7, 8, 9]
 
 
@@ -180,7 +180,8 @@ OPTIMIZATION:
     NUM_EPOCHS: 36 #20
 
     OPTIMIZER: adam_onecycle
-    LR: 0.003
+    # LR: 0.003
+    LR: 0.000375
     WEIGHT_DECAY: 0.05
     MOMENTUM: 0.9
 

@@ -15,7 +15,8 @@
 python -m pcdet.datasets.nuscenes.nuscenes_dataset --func create_nuscenes_infos \
     --cfg_file tools/cfgs/dataset_configs/nuscenes_dataset.yaml \
     --version v1.0-trainval \
-    --with_cam
+    --with_cam \
+    --split 14
 
 # ## for argoverse v2
 # python -m pcdet.datasets.argo2.argo2_dataset --root_path data/argo2/sensor --output_dir data/argo2

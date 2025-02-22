@@ -14,9 +14,9 @@ def get_z_axe_hilbert_index_3d_mamba_lite(template, coors, batch_size, z_dim, hi
     # new 3D 
     _, hil_size_y, hil_size_x = hilbert_spatial_size
 
-    x = coors[:, 3] + shift[2]
-    y = coors[:, 2] + shift[1]
-    z = coors[:, 1] + shift[0]
+    x = coors[:, 3] #+ shift[2]
+    y = coors[:, 2] #+ shift[1]
+    z = coors[:, 1] #+ shift[0]
 
     flat_coors = (y * hil_size_x + x).long()
     hil_inds = (template[flat_coors] * z_dim + z).long()
@@ -25,18 +25,34 @@ def get_z_axe_hilbert_index_3d_mamba_lite(template, coors, batch_size, z_dim, hi
     # y_coords = y[inds_curt_to_next]
     # z_coords = z[inds_curt_to_next]
     
-    inds_curt_to_next = {}
-    inds_next_to_curt = {}
-    for i in range(batch_size):
-        batch_mask = coors[:, 0] == i
-        inds_curt_to_next[i] = torch.argsort(hil_inds[batch_mask])
-        inds_next_to_curt[i] = torch.argsort(inds_curt_to_next[i])
-        # inds_next_to_curt[name] = torch.argsort(inds_curt_to_next[name])
-
+    # inds_curt_to_next = {}
+    # inds_next_to_curt = {}
+    # indices = {}
+    # for b in range(batch_size):
+    #     batch_mask = coors[:, 0] == b
+    #     inds_curt_to_next[b] = torch.argsort(hil_inds[batch_mask])
+    #     inds_next_to_curt[b] = torch.argsort(inds_curt_to_next[b])
+    #     # inds_next_to_curt[name] = torch.argsort(inds_curt_to_next[name])
+    #     indice = torch.eq(batch_mask, True).nonzero().squeeze().tolist()
+    #     back_indices = torch.zeros_like(indices)
+    #     back_indices[batch_mask] = indices[batch_mask][inds_curt_to_next[b]].flip(0)[inds_next_to_curt[b]]
+    #     indices[b] = {'forward': indice, 'backward': back_indices}
+  
+    # index_info = {}
+    # index_info['flat2win'] = inds_curt_to_next
+    # index_info['win2flat'] = inds_next_to_curt
+    # index_info['indices'] = indices
     index_info = {}
-    index_info['flat2win'] = inds_curt_to_next
-    index_info['win2flat'] = inds_next_to_curt
-
+    for b in range(batch_size):
+        batch_mask = coors[:, 0] == b
+        inds_curt_to_next = torch.argsort(hil_inds[batch_mask])
+        inds_next_to_curt = torch.argsort(inds_curt_to_next)
+        indice = torch.nonzero(batch_mask, as_tuple=False).squeeze()
+        back_indices = torch.zeros_like(indice)
+        back_indices[inds_curt_to_next] = indice[inds_curt_to_next].flip(0)
+        indices = {'forward': indice, 'backward': back_indices}
+        index_info[b] = {'flat2win': inds_curt_to_next, 'win2flat': inds_next_to_curt, 'indices': indices}
+        
     return index_info
 
 def get_hilbert_index_3d_mamba_lite(template, coors, batch_size, z_dim, hilbert_spatial_size, shift=(0, 0, 0), debug=True):

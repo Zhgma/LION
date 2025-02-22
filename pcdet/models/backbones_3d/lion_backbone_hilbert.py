@@ -77,14 +77,14 @@ class FlattenedHilbertMapping(nn.Module):
         self,
         # window_shape,
         # group_size,
-        # shift,
+        shift,
         # win_version='v2'
     ):
         super().__init__()
         # self.window_shape = window_shape
         # self.group_size = group_size
         # self.win_version = win_version
-        # self.shift = shift
+        self.shift = shift
         
     def forward(
         self,
@@ -93,9 +93,9 @@ class FlattenedHilbertMapping(nn.Module):
         sparse_shape: list,
         template
     ):
-        order = int(np.log2(sparse_shape[0]))
-        curve_template = template[f'rank{order}']['curve']
-        hilbert_spatial_size = template[f'rank{order}']['spatial_size']
+        order = math.ceil(np.log2(max(sparse_shape)))
+        curve_template = template[f'order_{order}']['curve']
+        hilbert_spatial_size = template[f'order_{order}']['size']
         mappings = get_z_axe_hilbert_index_3d_mamba_lite(
             curve_template, coords, batch_size, sparse_shape[0], hilbert_spatial_size, shift=self.shift)
 
@@ -376,6 +376,7 @@ class LIONLayerHilbert(nn.Module):
         operator=None,
         layer_id=0,
         n_layer=0,
+        num_seq=2,
         template=None
     ):
         super(LIONLayerHilbert, self).__init__()
@@ -383,39 +384,53 @@ class LIONLayerHilbert(nn.Module):
         # self.window_shape = window_shape
         # self.group_size = group_size
         # self.dim = dim
-        # self.direction = direction
-
+        self.direction = ['forward', 'backward']
+        self.num_seq = num_seq
         operator_cfg = operator.CFG
         operator_cfg['d_model'] = dim
 
         block_list = []
-        for i in range(len(direction)):
+        # for i in range(len(direction)):
+        for i in range(num_seq):
             operator_cfg['layer_id'] = i + layer_id
             operator_cfg['n_layer'] = n_layer
             # operator_cfg['with_cp'] = layer_id >= 16
             operator_cfg['with_cp'] = layer_id >= 0 ## all lion layer use checkpoint to save GPU memory!! (less 24G for training all models!!!)
             print('### use part of checkpoint!!')
             block_list.append(LinearOperatorMap[operator.NAME](**operator_cfg))
-
         self.blocks = nn.ModuleList(block_list)
+
         # self.window_partition = FlattenedWindowMapping(self.window_shape, self.group_size, shift)
-        self.window_partition = FlattenedHilbertMapping()
+        self.window_partition = FlattenedHilbertMapping(shift)
         self.template = template
 
     def forward(self, x):
         mappings = self.window_partition(x.indices, x.batch_size, x.spatial_shape, self.template)
 
-        for i, block in enumerate(self.blocks):
-            # indices = mappings[self.direction[i]]
-            # x_features = x.features[indices][mappings["flat2win"]]
-            # x_features = x_features.view(-1, self.group_size, x.features.shape[-1])
-            x_features = x.features[mappings["flat2win"]]
+        x_features_out = torch.zeros_like(x.features)
+        for b in range(x.batch_size):
+            mapping = mappings[b]
+            for i, block in enumerate(self.blocks):
+                indices = mapping['indices'][self.direction[i]]
+                x_features = x.features[indices][mapping["flat2win"]].unsqueeze(0)
+                x_features = block(x_features)
+                x_features_out[indices] = x_features.squeeze(0)[mapping["win2flat"]]
+        x = x.replace_feature(x_features_out)
+            
+        
+        
+        # for i, block in enumerate(self.blocks):
+        #     indices = mappings[self.direction[i]]
+        #     x_features = x.features[indices][mappings["flat2win"]]
+        #     x_features = x_features.view(-1, self.group_size, x.features.shape[-1])
+        #     # x_features = x.features[mappings["flat2win"]]
 
-            x_features = block(x_features)
+        #     x_features = block(x_features)
 
-            # x.features[indices] = x_features.view(-1, x_features.shape[-1])[mappings["win2flat"]]
-            x.features = x_features.view(-1, x_features.shape[-1])[mappings["win2flat"]]
+        #     x.features[indices] = x_features.view(-1, x_features.shape[-1])[mappings["win2flat"]]
+        #     # x.features = x_features.view(-1, x_features.shape[-1])[mappings["win2flat"]]
 
+        
         return x
 
 class PositionEmbeddingLearned(nn.Module):
@@ -471,7 +486,7 @@ class PositionEmbeddingLearned(nn.Module):
 
 class LIONBlockHilbert(nn.Module):
     def __init__(self, dim: int, depth: int, down_scales: list, window_shape, group_size, direction, shift=False,
-                 operator=None, layer_id=0, n_layer=0, template=None):
+                 operator=None, layer_id=0, n_layer=0, num_seq=2, template=None):
         super().__init__()
 
         self.down_scales = down_scales
@@ -484,7 +499,8 @@ class LIONBlockHilbert(nn.Module):
 
         shift = [False, shift]
         for idx in range(depth):
-            self.encoder.append(LIONLayerHilbert(dim, 1, window_shape, group_size, direction, shift[idx], operator, layer_id + idx * 2, n_layer, template))
+            # self.encoder.append(LIONLayerHilbert(dim, 1, window_shape, group_size, direction, shift[idx], operator, layer_id + idx * 2, n_layer, template))
+            self.encoder.append(LIONLayerHilbert(dim, 1, window_shape, group_size, direction, shift[idx], operator, layer_id + num_seq * idx , n_layer, num_seq, template))
             self.pos_emb_list.append(PositionEmbeddingLearned(input_channel=3, num_pos_feats=dim))
             self.downsample_list.append(PatchMerging3D(dim, dim, down_scale=down_scales[idx], norm_layer=norm_fn))
 
@@ -492,7 +508,8 @@ class LIONBlockHilbert(nn.Module):
         self.decoder_norm = nn.ModuleList()
         self.upsample_list = nn.ModuleList()
         for idx in range(depth):
-            self.decoder.append(LIONLayerHilbert(dim, 1, window_shape, group_size, direction, shift[idx], operator, layer_id + 2 * (idx + depth), n_layer, template))
+            # self.decoder.append(LIONLayerHilbert(dim, 1, window_shape, group_size, direction, shift[idx], operator, layer_id + 2 * (idx + depth), n_layer, template))
+            self.decoder.append(LIONLayerHilbert(dim, 1, window_shape, group_size, direction, shift[idx], operator, layer_id + num_seq * (idx + depth), n_layer, num_seq, template))
             self.decoder_norm.append(norm_fn(dim))
             
             self.upsample_list.append(PatchExpanding3D(dim))
@@ -620,37 +637,67 @@ class LION3DBackboneHilbert(nn.Module):
         assert len(self.layer_dim) == len(depths)
 
         
-        self.linear_1 = LIONBlockHilbert(self.layer_dim[0], depths[0], layer_down_scales[0], self.window_shape[0],
-                                    self.group_size[0], direction, shift=shift, operator=self.linear_operator, layer_id=0, n_layer=self.n_layer, template=self.template)  ##[27, 27, 32] --》 [13, 13, 32]
+        # self.linear_1 = LIONBlockHilbert(self.layer_dim[0], depths[0], layer_down_scales[0], self.window_shape[0],
+        #                             self.group_size[0], direction, shift=shift, operator=self.linear_operator, layer_id=0, n_layer=self.n_layer, template=self.template)  ##[27, 27, 32] --》 [13, 13, 32]
 
-        self.dow1 = PatchMerging3D(self.layer_dim[0], self.layer_dim[0], down_scale=[1, 1, 2],
-                                     norm_layer=norm_fn, diffusion=diffusion, diff_scale=diff_scale)
+        # self.dow1 = PatchMerging3D(self.layer_dim[0], self.layer_dim[0], down_scale=[1, 1, 2],
+        #                              norm_layer=norm_fn, diffusion=diffusion, diff_scale=diff_scale)
         
 
-        # [944, 944, 16] -> [472, 472, 8]
-        self.linear_2 = LIONBlockHilbert(self.layer_dim[1], depths[1], layer_down_scales[1], self.window_shape[1],
-                                    self.group_size[1], direction, shift=shift, operator=self.linear_operator, layer_id=8, n_layer=self.n_layer, template=self.template)
+        # # [944, 944, 16] -> [472, 472, 8]
+        # self.linear_2 = LIONBlockHilbert(self.layer_dim[1], depths[1], layer_down_scales[1], self.window_shape[1],
+        #                             self.group_size[1], direction, shift=shift, operator=self.linear_operator, layer_id=8, n_layer=self.n_layer, template=self.template)
 
-        self.dow2 = PatchMerging3D(self.layer_dim[1], self.layer_dim[1], down_scale=[1, 1, 2],
-                                     norm_layer=norm_fn, diffusion=diffusion, diff_scale=diff_scale)
+        # self.dow2 = PatchMerging3D(self.layer_dim[1], self.layer_dim[1], down_scale=[1, 1, 2],
+        #                              norm_layer=norm_fn, diffusion=diffusion, diff_scale=diff_scale)
 
 
-        #  [236, 236, 8] -> [236, 236, 4]
-        self.linear_3 = LIONBlockHilbert(self.layer_dim[2], depths[2], layer_down_scales[2], self.window_shape[2],
-                                    self.group_size[2], direction, shift=shift, operator=self.linear_operator, layer_id=16, n_layer=self.n_layer, template=self.template)
+        # #  [236, 236, 8] -> [236, 236, 4]
+        # self.linear_3 = LIONBlockHilbert(self.layer_dim[2], depths[2], layer_down_scales[2], self.window_shape[2],
+        #                             self.group_size[2], direction, shift=shift, operator=self.linear_operator, layer_id=16, n_layer=self.n_layer, template=self.template)
 
-        self.dow3 = PatchMerging3D(self.layer_dim[2], self.layer_dim[3], down_scale=[1, 1, 2],
-                                     norm_layer=norm_fn, diffusion=diffusion, diff_scale=diff_scale)
+        # self.dow3 = PatchMerging3D(self.layer_dim[2], self.layer_dim[3], down_scale=[1, 1, 2],
+        #                              norm_layer=norm_fn, diffusion=diffusion, diff_scale=diff_scale)
 
-        #  [236, 236, 4] -> [236, 236, 2]
-        self.linear_4 = LIONBlockHilbert(self.layer_dim[3], depths[3], layer_down_scales[3], self.window_shape[3],
-                                    self.group_size[3], direction, shift=shift, operator=self.linear_operator, layer_id=24, n_layer=self.n_layer, template=self.template)
+        # #  [236, 236, 4] -> [236, 236, 2]
+        # self.linear_4 = LIONBlockHilbert(self.layer_dim[3], depths[3], layer_down_scales[3], self.window_shape[3],
+        #                             self.group_size[3], direction, shift=shift, operator=self.linear_operator, layer_id=24, n_layer=self.n_layer, template=self.template)
 
-        self.dow4 = PatchMerging3D(self.layer_dim[3], self.layer_dim[3], down_scale=[1, 1, 2],
-                                     norm_layer=norm_fn, diffusion=diffusion, diff_scale=diff_scale)
+        # self.dow4 = PatchMerging3D(self.layer_dim[3], self.layer_dim[3], down_scale=[1, 1, 2],
+        #                              norm_layer=norm_fn, diffusion=diffusion, diff_scale=diff_scale)
+        
+        
+        self.stages = nn.ModuleList(
+            LIONBlockHilbert(
+                self.layer_dim[i],
+                depths[i],
+                layer_down_scales[i],
+                self.window_shape[i],
+                self.group_size[i],
+                direction,
+                shift=shift,
+                operator=self.linear_operator,
+                layer_id=sum(depths[:i]) * 2 if i > 0 else 0,
+                n_layer=self.n_layer,
+                template=self.template
+                )
+            for i in range(num_layers)
+
+        )
+        self.downsamples = nn.ModuleList(
+            PatchMerging3D(
+                self.layer_dim[i],
+                self.layer_dim[i],
+                down_scale=[1, 1, 2],
+                norm_layer=nn.LayerNorm,
+                diffusion=diffusion,
+                diff_scale=diff_scale
+                )
+            for i in range(num_layers)
+        )
 
         self.linear_out = LIONLayerHilbert(self.layer_dim[3], 1, [13, 13, 2], 256, direction=['x', 'y'], shift=shift,
-                                      operator=self.linear_operator, layer_id=32, n_layer=self.n_layer, template=self.template)
+                                      operator=self.linear_operator, layer_id=sum(depths) * 2, n_layer=self.n_layer, template=self.template)
 
         self.num_point_features = dim
 
@@ -662,7 +709,7 @@ class LION3DBackboneHilbert(nn.Module):
         }
 
     def load_template(self, order):
-        template = torch.load(f'{self.template_path}/hilbert_curve_order_{order}.pth')
+        template = torch.load(f'{self.template_path}/hilbert_curve_order_{order}.pth').cuda()
         template_dict = {}
         if isinstance(template, dict):
             # self.curve_template[f'curve_template_rank{rank}'] = template['data'].reshape(-1)
@@ -691,35 +738,43 @@ class LION3DBackboneHilbert(nn.Module):
             batch_size=batch_size
         )
 
-        x = self.linear_1(x)
-        x1, _ = self.dow1(x)  ## 14.0k --> 16.9k  [32, 1000, 1000]-->[16, 1000, 1000]
-        x = self.linear_2(x1)
-        x2, _ = self.dow2(x)  ## 16.9k --> 18.8k  [16, 1000, 1000]-->[8, 1000, 1000]
-        x = self.linear_3(x2)
-        x3, _ = self.dow3(x)   ## 18.8k --> 19.1k  [8, 1000, 1000]-->[4, 1000, 1000]
-        x = self.linear_4(x3)
-        x4, _ = self.dow4(x)  ## 19.1k --> 18.5k  [4, 1000, 1000]-->[2, 1000, 1000]
-        x = self.linear_out(x4)
+        # x = self.linear_1(x)
+        # x1, _ = self.dow1(x)  ## 14.0k --> 16.9k  [32, 1000, 1000]-->[16, 1000, 1000]
+        # x = self.linear_2(x1)
+        # x2, _ = self.dow2(x)  ## 16.9k --> 18.8k  [16, 1000, 1000]-->[8, 1000, 1000]
+        # x = self.linear_3(x2)
+        # x3, _ = self.dow3(x)   ## 18.8k --> 19.1k  [8, 1000, 1000]-->[4, 1000, 1000]
+        # x = self.linear_4(x3)
+        # x4, _ = self.dow4(x)  ## 19.1k --> 18.5k  [4, 1000, 1000]-->[2, 1000, 1000]
+        pts_feats = {}
+        for idx, stage in enumerate(self.stages):
+            x = stage(x)
+            pts_feats[f'x_conv{idx+1}'] = x
+            x, _ = self.downsamples[idx](x)
+        x = self.linear_out(x)
 
         batch_dict.update({
             'encoded_spconv_tensor': x,
             'encoded_spconv_tensor_stride': 1
         })
 
+        # batch_dict.update({
+        #     'multi_scale_3d_features': {
+        #         'x_conv1': x1,
+        #         'x_conv2': x2,
+        #         'x_conv3': x3,
+        #         'x_conv4': x4,
+        #     }
+        # })
         batch_dict.update({
-            'multi_scale_3d_features': {
-                'x_conv1': x1,
-                'x_conv2': x2,
-                'x_conv3': x3,
-                'x_conv4': x4,
-            }
+            'multi_scale_3d_features': pts_feats
         })
         batch_dict.update({
             'multi_scale_3d_strides': {
-                'x_conv1': torch.tensor([1,1,2], device=x1.features.device).float(),
-                'x_conv2': torch.tensor([1,1,4], device=x1.features.device).float(),
-                'x_conv3': torch.tensor([1,1,8], device=x1.features.device).float(),
-                'x_conv4': torch.tensor([1,1,16], device=x1.features.device).float(),
+                'x_conv1': torch.tensor([1,1,2], device=x.features.device).float(),
+                'x_conv2': torch.tensor([1,1,4], device=x.features.device).float(),
+                'x_conv3': torch.tensor([1,1,8], device=x.features.device).float(),
+                'x_conv4': torch.tensor([1,1,16], device=x.features.device).float(),
             }
         })
 

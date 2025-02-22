@@ -9,6 +9,14 @@ draw a curve
 
 import torch
 import matplotlib.pyplot as plt
+import os
+
+def save_curve(curve, filename, path='../data/hilbert'):
+    if not os.path.exists(path):
+        os.makedirs(path)
+    torch.save(curve, f'{path}/{filename}.pth')
+    print(f"张量已保存为 {filename}.pth")
+    
 
 def hilbert_curve_to_tensor(orders):
     """
@@ -49,8 +57,7 @@ def hilbert_curve(order, orders, device):
     
     if order in orders:
         curve_flat = curve.view(-1)
-        torch.save(curve_flat, f'./data/hilbert/hilbert_curve_rank_{order}.pth')
-        print(f"张量已保存为 hilbert_curve_rank_{order}.pth")
+        save_curve(curve_flat, f'hilbert_curve_order_{order}')
     if order+1 in orders:
         s *= 2
         curve_flat = torch.zeros(2 * s, 2 * s, device=device)
@@ -59,8 +66,7 @@ def hilbert_curve(order, orders, device):
         curve_flat[s:, s:] = curve.clone().detach().flip(0, 1) + 2 * s * s
         curve_flat[s:, :s] = curve.clone().detach().permute(1, 0).flip(1) + 3 * s * s
         curve_flat = curve_flat.view(-1)
-        torch.save(curve_flat, f'./data/hilbert/hilbert_curve_es_rank_{order+1}.pth')
-        print(f"张量已保存为 hilbert_curve_es_rank_{order+1}.pth")
+        save_curve(curve_flat, f'hilbert_curve_es_order_{order+1}')
     return curve
 
 
