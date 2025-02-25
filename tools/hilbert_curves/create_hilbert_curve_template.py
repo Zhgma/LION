@@ -28,7 +28,7 @@ def hilbert_curve_to_tensor(orders):
     返回:
         torch.Tensor: 一个2^n x 2^n的张量，每个位置的值表示曲线经过的顺序。
     """
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    device = torch.device("cpu")
     max_order = max(orders)
     # 生成Hilbert曲线的坐标
     hilbert_curve(max_order, orders, device)
@@ -72,7 +72,7 @@ def hilbert_curve(order, orders, device):
 
 # 示例：生成3阶Hilbert曲线的张量并保存为pth文件
 if __name__ == "__main__":
-    orders = [2, 3]  # 阶数
+    orders = [7, 8, 9]  # 阶数
     hilbert_curve_to_tensor(orders)
 
     

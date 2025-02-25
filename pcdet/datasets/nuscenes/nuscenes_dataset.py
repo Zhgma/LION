@@ -354,7 +354,7 @@ class NuScenesDataset(DatasetTemplate):
             pickle.dump(all_db_infos, f)
 
 
-def create_nuscenes_info(version, data_path, save_path, max_sweeps=10, with_cam=False, split=1):
+def create_nuscenes_info(version, data_path, save_path, max_sweeps=10, with_cam=False, split=14):
     from nuscenes.nuscenes import NuScenes
     from nuscenes.utils import splits
     from . import nuscenes_utils

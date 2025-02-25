@@ -181,7 +181,8 @@ OPTIMIZATION:
 
     OPTIMIZER: adam_onecycle
     # LR: 0.003
-    LR: 0.000375
+    # LR: 0.000375
+    LR: 0.00075
     WEIGHT_DECAY: 0.05
     MOMENTUM: 0.9
 
