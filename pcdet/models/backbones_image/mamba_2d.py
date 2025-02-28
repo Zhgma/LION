@@ -109,12 +109,12 @@ class DownSampling(nn.Module):
         dim (int): Number of input channels.
     """
 
-    def __init__(self, dim, ratio=4.0):
+    def __init__(self, dim, out_dim, ratio=4.0):
         super().__init__()
 
         self.dim = dim
         in_channels = dim
-        out_channels = 2 * dim
+        out_channels = out_dim
         self.conv = nn.Sequential(
             ConvLayer(in_channels, int(out_channels * ratio), kernel_size=1, norm=None),
             ConvLayer(int(out_channels * ratio), int(out_channels * ratio), kernel_size=3, stride=2, padding=1, groups=int(out_channels * ratio), norm=None),
@@ -135,6 +135,7 @@ class MambaBlock2D(nn.Module):
     def __init__(
         self,
         hidden_dim: int = 0,
+        out_dim: Optional[int] = 0,
         drop_path: float = 0,
         norm_layer: Callable[..., torch.nn.Module] = partial(nn.LayerNorm, eps=1e-6),
         # attn_drop_rate: float = 0,
@@ -189,7 +190,7 @@ class MambaBlock2D(nn.Module):
 
         self.cpe2 = nn.Conv2d(hidden_dim, hidden_dim, 3, padding=1, groups=hidden_dim)
         self.ln_2 = norm_layer(hidden_dim)
-        self.mlp = Mlp(in_features=hidden_dim, hidden_features=int(hidden_dim*mlp_ratio), act_layer=mlp_act_layer, drop=mlp_drop_rate, channels_first=False)
+        self.mlp = Mlp(in_features=hidden_dim, hidden_features=out_dim, act_layer=mlp_act_layer, drop=mlp_drop_rate, channels_first=False)
     
     def forward(self, x: torch.Tensor):
         x = x + self.cpe1(x.permute(0, 3, 1, 2).contiguous()).permute(0, 2, 3, 1)
@@ -203,6 +204,7 @@ class MambaBlockSequence2D(nn.Module):
     def __init__(
         self, 
         embed_dim,
+        out_dim,
         depth=2,
         drop_path=[0.1, 0.1], 
         norm_layer=nn.LayerNorm,
@@ -239,6 +241,7 @@ class MambaBlockSequence2D(nn.Module):
         self.blocks = nn.ModuleList([
             MambaBlock2D(
                 hidden_dim=embed_dim,
+                out_dim=out_dim,
                 drop_path=drop_path[i] if isinstance(drop_path, list) else drop_path,
                 # attn_drop_rate=attn_drop,
                 # d_state=d_state,
@@ -271,7 +274,7 @@ class MambaBlockSequence2D(nn.Module):
             self.apply(_init_weights)
 
         if downsample is not None:
-            self.downsample = downsample(dim=embed_dim)
+            self.downsample = downsample(dim=embed_dim, out_dim=out_dim)
         else:
             self.downsample = None
 
@@ -285,9 +288,9 @@ class MambaBlockSequence2D(nn.Module):
 
         if self.downsample is not None:
             x_down = self.downsample(x)
-            return x_down, x
-
-        return x, x
+        else:
+            x_down = None
+        return x_down, x
 
 
 class MambaBackbone2D(nn.Module):
@@ -367,6 +370,7 @@ class MambaBackbone2D(nn.Module):
         self.stages = nn.ModuleList([
             MambaBlockSequence2D(
                 embed_dim=embed_dims[idx],
+                out_dim=embed_dims[idx + 1] if idx < num_layers - 1 else embed_dims[idx],
                 depth=depths[idx],
                 drop_path=drop_path[idx],
                 ssm_d_state=ssm_d_state,
@@ -502,7 +506,9 @@ class MambaBackbone2D(nn.Module):
             self.load_state_dict(state_dict, False)
 
     def forward(self, batch_dict):
-        x = batch_dict['camera_imgs']
+        x = batch_dict.pop('camera_imgs', None)
+        if x is None:
+            return batch_dict
         B, N, C, H, W = x.size()
         x = x.view(B * N, C, H, W)
         x = self.patch_embed(x)

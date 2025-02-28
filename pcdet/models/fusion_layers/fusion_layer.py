@@ -101,6 +101,7 @@ class FusionLayer(nn.Module):
                 sampled_feat = sampled_feat.view(C, -1)
                 multi_cam_feats += sampled_feat
             sampled_feats[..., voxel_coords[:, 0] == b] = multi_cam_feats.view(C, *voxel_points.shape[:2]).sum(-1)
+            del cur_coords, multi_cam_feats
         sampled_feats = sampled_feats.transpose(0, 1)
 
         # return reference_voxel_cam, mask, sampled_feats
@@ -179,9 +180,7 @@ class FusionLayer(nn.Module):
             multi_cam_feats = img_feats.new_zeros(size=(C, cur_coords.shape[1]))
             for k in range(N):
                 reference_points_cam = cur_coords[k].view(-1, 1, 2)
-                sampled_feat = F.grid_sample(img_feats[k][b].unsqueeze(dim=0), reference_points_cam.unsqueeze(dim=0))  # feat: [24,256,32,88]; reference_points_cam_lvl: [24, num_query, 1, 2]
-                sampled_feat = sampled_feat.view(C, -1)
-                multi_cam_feats += sampled_feat
+                multi_cam_feats += F.grid_sample(img_feats[k][b].unsqueeze(dim=0), reference_points_cam.unsqueeze(dim=0), align_corners=True).view(C, -1)  # feat: [24,256,32,88]; reference_points_cam_lvl: [24, num_query, 1, 2]
             sampled_feats[..., voxel_batch_idx] = multi_cam_feats.view(C, voxel_coords.shape[0])
         sampled_feats = sampled_feats.transpose(0, 1)
 
@@ -213,6 +212,7 @@ class FusionLayer(nn.Module):
     def forward(self, pts_feats, img_feats, batch_dict):
         sampled_img_feats = self.img_point_sampling_v2(pts_feats.indices, img_feats, batch_dict)
         fuse_feats = torch.cat([pts_feats.features, sampled_img_feats], dim=1)
+        del sampled_img_feats
         fuse_feats = replace_feature(pts_feats, fuse_feats)
         fuse_feats = self.fuseconv(fuse_feats)
         return fuse_feats

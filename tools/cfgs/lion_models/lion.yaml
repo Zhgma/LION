@@ -5,13 +5,7 @@ DATA_CONFIG:
   _BASE_CONFIG_: cfgs/dataset_configs/nuscenes_dataset.yaml
 
   BALANCED_RESAMPLING: False # not use CBGS!!!
-  CAMERA_CONFIG:
-    USE_CAMERA: True
-    IMAGE:
-        FINAL_DIM: [256,704]
-        RESIZE_LIM_TRAIN: [0.38, 0.55]
-        RESIZE_LIM_TEST: [0.48, 0.48]
-  
+
   POINT_CLOUD_RANGE: [-54.0, -54.0, -5.0, 54.0, 54.0, 3.0]
   DATA_AUGMENTOR:
     DISABLE_AUG_LIST: ['placeholder']
@@ -48,12 +42,6 @@ DATA_CONFIG:
 
       - NAME: random_world_translation
         NOISE_TRANSLATE_STD: [0.5, 0.5, 0.5]
-      
-      - NAME: set_lidar_aug_matrix
-
-      - NAME: imgaug
-        ROT_LIM: [-5.4, 5.4]
-        RAND_FLIP: True
 
   DATA_PROCESSOR:
     -   NAME: mask_points_and_boxes_outside_range
@@ -69,32 +57,8 @@ DATA_CONFIG:
     -   NAME: transform_points_to_voxels_placeholder
         VOXEL_SIZE: [0.3, 0.3, 0.25]
 
-    - NAME: image_calibrate
-    
-    - NAME: image_normalize
-      mean: [0.485, 0.456, 0.406]
-      std: [0.229, 0.224, 0.225]
-
 MODEL:
     NAME: TransFusionV2
-
-    BACKBONE_IMAGE:
-        NAME: MambaBackbone2D
-        EMBED_DIMS: [48, 96, 96, 96]
-        DEPTHS: [2, 2, 2, 2]
-        # NUM_HEADS: [3, 6, 12, 24]
-        # WINDOW_SIZE: 7
-        # MLP_RATIO: 4
-        DROP_RATE: 0.
-        # ATTN_DROP_RATE: 0.
-        # DROP_PATH_RATE: [0.2]
-        # PATCH_NORM: True
-        # OUT_INDICES: [1, 2, 3]
-        WITH_CP: True
-        CONVERT_WEIGHTS: True
-        # INIT_CFG:
-        #     type: Pretrained
-        #     checkpoint: swint-nuimages-pretrained.p
 
     VFE:
         NAME: DynamicVoxelVFE
@@ -107,7 +71,6 @@ MODEL:
         NAME: FusionLION3DBackbone
         FEATURE_DIM: 128
         LAYER_DIM: [128, 128, 128, 128]
-        IMAGE_DIM: [48, 96, 96, 96]
         NUM_LAYERS: 4
         DEPTHS: [2, 2, 2, 2]
         LAYER_DOWN_SCALES: [[[2, 2, 2], [2, 2, 2]], [[2, 2, 2], [2, 2, 2]], [[2, 2, 2], [2, 2, 2]], [[2, 2, 2], [2, 2, 2]]]
@@ -211,7 +174,7 @@ MODEL:
 
 
 OPTIMIZATION:
-    BATCH_SIZE_PER_GPU: 1 #4
+    BATCH_SIZE_PER_GPU: 2 #4
     NUM_EPOCHS: 36 #20
 
     OPTIMIZER: adam_onecycle

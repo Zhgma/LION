@@ -99,7 +99,7 @@ class FusionLION3DBackbone(nn.Module):
         }
         
         
-        self.image_dim = model_cfg.IMAGE_DIM
+        self.image_dim = model_cfg.get('IMAGE_DIM', None)
         self.fusion = nn.ModuleList(
             FusionLayer(
                 self.layer_dim[i],
@@ -107,13 +107,13 @@ class FusionLION3DBackbone(nn.Module):
                 grid_size,
                 )
             for i in range(num_layers)
-        )
+        ) if self.image_dim is not None else None
 
     def forward(self, batch_dict):
         voxel_features = batch_dict['voxel_features']
         voxel_coords = batch_dict['voxel_coords']
         batch_size = batch_dict['batch_size']
-        image_features = batch_dict['image_features']
+        image_features = batch_dict.pop('image_features', None)
 
         x = spconv.SparseConvTensor(
             features=voxel_features,
@@ -130,12 +130,12 @@ class FusionLION3DBackbone(nn.Module):
         # x3, _ = self.dow3(x)   ## 18.8k --> 19.1k  [8, 1000, 1000]-->[4, 1000, 1000]
         # x = self.linear_4(x3)
         # x4, _ = self.dow4(x)  ## 19.1k --> 18.5k  [4, 1000, 1000]-->[2, 1000, 1000]
-        fusion_feats = dict()
+        # fusion_feats = dict()
         for idx, stage in enumerate(self.stages):
             x = stage(x)
-            if image_features[idx] is not None:
+            if image_features is not None and self.fusion is not None:
                 x = self.fusion[idx](x, image_features[idx], batch_dict)
-            fusion_feats[f'x_conv{idx+1}'] = x
+            # fusion_feats[f'x_conv{idx+1}'] = x
             x, _ = self.downsamples[idx](x)
         x = self.linear_out(x)
 
@@ -152,17 +152,17 @@ class FusionLION3DBackbone(nn.Module):
         #         'x_conv4': x4,
         #     }
         # })
-        if fusion_feats is not None:
-            batch_dict.update({
-                'multi_scale_fusion_features': fusion_feats
-            })
-            batch_dict.update({
-                # 'multi_scale_3d_strides': {
-                'multi_scale_fusion_strides': {
-                    'x_conv1': torch.tensor([1,1,2], device=x.features.device).float(),
-                    'x_conv2': torch.tensor([1,1,4], device=x.features.device).float(),
-                    'x_conv3': torch.tensor([1,1,8], device=x.features.device).float(),
-                    'x_conv4': torch.tensor([1,1,16], device=x.features.device).float(),
-                }
-            })
+        # if fusion_feats is not None:
+        #     batch_dict.update({
+        #         'multi_scale_fusion_features': fusion_feats
+        #     })
+        #     batch_dict.update({
+        #         # 'multi_scale_3d_strides': {
+        #         'multi_scale_fusion_strides': {
+        #             'x_conv1': torch.tensor([1,1,2], device=x.features.device).float(),
+        #             'x_conv2': torch.tensor([1,1,4], device=x.features.device).float(),
+        #             'x_conv3': torch.tensor([1,1,8], device=x.features.device).float(),
+        #             'x_conv4': torch.tensor([1,1,16], device=x.features.device).float(),
+        #         }
+        #     })
         return batch_dict
