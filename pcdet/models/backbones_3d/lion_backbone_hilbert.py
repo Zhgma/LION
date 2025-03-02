@@ -77,14 +77,14 @@ class FlattenedHilbertMapping(nn.Module):
         self,
         # window_shape,
         # group_size,
-        shift,
+        scan_version=0,
         # win_version='v2'
     ):
         super().__init__()
         # self.window_shape = window_shape
         # self.group_size = group_size
         # self.win_version = win_version
-        self.shift = shift
+        self.scan_version = scan_version
         
     def forward(
         self,
@@ -97,7 +97,7 @@ class FlattenedHilbertMapping(nn.Module):
         curve_template = template[f'order_{order}']['curve']
         hilbert_spatial_size = template[f'order_{order}']['size']
         mappings = get_z_axe_hilbert_index_3d_mamba_lite(
-            curve_template, coords, batch_size, sparse_shape[0], hilbert_spatial_size, shift=self.shift)
+            curve_template, coords, batch_size, sparse_shape[0], hilbert_spatial_size, scan_version=self.scan_version)
 
         return mappings
 
@@ -363,7 +363,7 @@ LinearOperatorMap = {
     'TTT': TTTBlock,
 }
 
-
+NUM_SEQ = [2, 1]
 class LIONLayerHilbert(nn.Module):
     def __init__(
         self,
@@ -376,7 +376,7 @@ class LIONLayerHilbert(nn.Module):
         operator=None,
         layer_id=0,
         n_layer=0,
-        num_seq=2,
+        scan_version=0,
         template=None
     ):
         super(LIONLayerHilbert, self).__init__()
@@ -385,23 +385,23 @@ class LIONLayerHilbert(nn.Module):
         # self.group_size = group_size
         # self.dim = dim
         self.direction = ['forward', 'backward']
-        self.num_seq = num_seq
+        self.scan_version = scan_version
         operator_cfg = operator.CFG
         operator_cfg['d_model'] = dim
 
         block_list = []
         # for i in range(len(direction)):
-        for i in range(num_seq):
+        for i in range(NUM_SEQ[scan_version]):
             operator_cfg['layer_id'] = i + layer_id
             operator_cfg['n_layer'] = n_layer
             # operator_cfg['with_cp'] = layer_id >= 16
-            operator_cfg['with_cp'] = layer_id >= 0 ## all lion layer use checkpoint to save GPU memory!! (less 24G for training all models!!!)
+            # operator_cfg['with_cp'] = layer_id >= 0 ## all lion layer use checkpoint to save GPU memory!! (less 24G for training all models!!!)
             print('### use part of checkpoint!!')
             block_list.append(LinearOperatorMap[operator.NAME](**operator_cfg))
         self.blocks = nn.ModuleList(block_list)
 
         # self.window_partition = FlattenedWindowMapping(self.window_shape, self.group_size, shift)
-        self.window_partition = FlattenedHilbertMapping(shift)
+        self.window_partition = FlattenedHilbertMapping(scan_version)
         self.template = template
 
     def forward(self, x):
@@ -409,12 +409,17 @@ class LIONLayerHilbert(nn.Module):
 
         x_features_out = torch.zeros_like(x.features)
         for b in range(x.batch_size):
+            batch_mask = x.indices[:, 0] == b
             mapping = mappings[b]
+            x_features = x.features[batch_mask]
             for i, block in enumerate(self.blocks):
-                indices = mapping['indices'][self.direction[i]]
-                x_features = x.features[indices][mapping["flat2win"]].unsqueeze(0)
+                # indices = mapping['indices'][self.direction[i]]
+                x_features = mapping["operates"][i](x_features)
+                x_features = x.features[mapping["flat2win"]].unsqueeze(0)
                 x_features = block(x_features)
-                x_features_out[indices] = x_features.squeeze(0)[mapping["win2flat"]]
+                x_features = x_features.squeeze(0)[mapping["win2flat"]]
+                x_features = mapping["reversed_operates"][i](x_features)
+                x_features_out[batch_mask] = x_features
         x = x.replace_feature(x_features_out)
             
         
@@ -486,10 +491,12 @@ class PositionEmbeddingLearned(nn.Module):
 
 class LIONBlockHilbert(nn.Module):
     def __init__(self, dim: int, depth: int, down_scales: list, window_shape, group_size, direction, shift=False,
-                 operator=None, layer_id=0, n_layer=0, num_seq=2, template=None):
+                 operator=None, layer_id=0, n_layer=0, scan_version=0, template=None):
         super().__init__()
 
         self.down_scales = down_scales
+        self.scan_version = scan_version
+        num_seq = NUM_SEQ[scan_version]
 
         self.encoder = nn.ModuleList()
         self.downsample_list = nn.ModuleList()
@@ -500,7 +507,7 @@ class LIONBlockHilbert(nn.Module):
         shift = [False, shift]
         for idx in range(depth):
             # self.encoder.append(LIONLayerHilbert(dim, 1, window_shape, group_size, direction, shift[idx], operator, layer_id + idx * 2, n_layer, template))
-            self.encoder.append(LIONLayerHilbert(dim, 1, window_shape, group_size, direction, shift[idx], operator, layer_id + num_seq * idx , n_layer, num_seq, template))
+            self.encoder.append(LIONLayerHilbert(dim, 1, window_shape, group_size, direction, shift[idx], operator, layer_id + num_seq * idx , n_layer, scan_version, template))
             self.pos_emb_list.append(PositionEmbeddingLearned(input_channel=3, num_pos_feats=dim))
             self.downsample_list.append(PatchMerging3D(dim, dim, down_scale=down_scales[idx], norm_layer=norm_fn))
 
@@ -509,7 +516,7 @@ class LIONBlockHilbert(nn.Module):
         self.upsample_list = nn.ModuleList()
         for idx in range(depth):
             # self.decoder.append(LIONLayerHilbert(dim, 1, window_shape, group_size, direction, shift[idx], operator, layer_id + 2 * (idx + depth), n_layer, template))
-            self.decoder.append(LIONLayerHilbert(dim, 1, window_shape, group_size, direction, shift[idx], operator, layer_id + num_seq * (idx + depth), n_layer, num_seq, template))
+            self.decoder.append(LIONLayerHilbert(dim, 1, window_shape, group_size, direction, shift[idx], operator, layer_id + num_seq * (idx + depth), n_layer, scan_version, template))
             self.decoder_norm.append(norm_fn(dim))
             
             self.upsample_list.append(PatchExpanding3D(dim))
@@ -610,6 +617,7 @@ class LION3DBackboneHilbert(nn.Module):
         self.group_size = model_cfg.GROUP_SIZE
         self.layer_dim = model_cfg.LAYER_DIM
         self.linear_operator = model_cfg.OPERATOR
+        self.scan_version = model_cfg.get('SCAN_VERSION', 0)
         
         self.n_layer = len(depths) * depths[0] * 2 * 2 + 2
         
@@ -679,6 +687,7 @@ class LION3DBackboneHilbert(nn.Module):
                 operator=self.linear_operator,
                 layer_id=sum(depths[:i]) * 2 if i > 0 else 0,
                 n_layer=self.n_layer,
+                scan_version=self.scan_version,
                 template=self.template
                 )
             for i in range(num_layers)
@@ -696,8 +705,19 @@ class LION3DBackboneHilbert(nn.Module):
             for i in range(num_layers)
         )
 
-        self.linear_out = LIONLayerHilbert(self.layer_dim[3], 1, [13, 13, 2], 256, direction=['x', 'y'], shift=shift,
-                                      operator=self.linear_operator, layer_id=sum(depths) * 2, n_layer=self.n_layer, template=self.template)
+        self.linear_out = LIONLayerHilbert(
+            self.layer_dim[3],
+            1,
+            [13, 13, 2],
+            256,
+            direction=['x', 'y'],
+            shift=shift,
+            operator=self.linear_operator,
+            layer_id=sum(depths) * 2,
+            n_layer=self.n_layer,
+            scan_version=self.scan_version,
+            template=self.template
+            )
 
         self.num_point_features = dim
 
@@ -721,7 +741,7 @@ class LION3DBackboneHilbert(nn.Module):
             # spatial_size = 2 ** rank
             # self.hilbert_spatial_size[f'curve_template_rank{rank}'] = (1, spatial_size, spatial_size) #[z, y, x]
             template_dict['curve'] = template.reshape(-1)
-            spatial_size = 2 ** order
+            spatial_size = 1 << order
             template_dict['size'] = (1, spatial_size, spatial_size) #[z, y, x]
         self.template[f'order_{order}'] = template_dict
 
