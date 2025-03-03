@@ -21,7 +21,8 @@ def get_z_axe_hilbert_index_3d_mamba_lite(template, coords, batch_size, z_dim, h
     if scan_version == 0:
         flat_coords = (y * hil_size_x + x).long()
         hil_inds = (template[flat_coords] * z_dim + z).long()
-        operates = [lambda x: x, lambda x: x.flip(0)]
+        # operates = [lambda x: x, lambda x: x.flip(0)]
+        operates = [lambda x: x]
         reversed_operates = operates
     elif scan_version == 1:
         s = hil_size_x >> 1

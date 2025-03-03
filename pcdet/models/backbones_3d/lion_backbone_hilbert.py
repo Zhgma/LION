@@ -363,7 +363,7 @@ LinearOperatorMap = {
     'TTT': TTTBlock,
 }
 
-NUM_SEQ = [2, 1]
+NUM_SEQ = [1, 1]
 class LIONLayerHilbert(nn.Module):
     def __init__(
         self,
