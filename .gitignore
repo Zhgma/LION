@@ -15,3 +15,5 @@ output
 version.py
 data/
 */nohup.out
+pretrained
+results

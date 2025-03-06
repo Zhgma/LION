@@ -603,7 +603,7 @@ class LION3DBackboneHilbert(nn.Module):
         self.model_cfg = model_cfg
 
         self.sparse_shape = grid_size[::-1]  # + [1, 0, 0]
-        norm_fn = partial(nn.LayerNorm)
+        self.norm_fn = nn.LayerNorm
 
         dim = model_cfg.FEATURE_DIM
         num_layers = model_cfg.NUM_LAYERS
@@ -698,7 +698,7 @@ class LION3DBackboneHilbert(nn.Module):
                 self.layer_dim[i],
                 self.layer_dim[i],
                 down_scale=[1, 1, 2],
-                norm_layer=nn.LayerNorm,
+                norm_layer=self.norm_fn,
                 diffusion=diffusion,
                 diff_scale=diff_scale
                 )
