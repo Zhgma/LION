@@ -4,7 +4,7 @@ CLASS_NAMES: ['car','truck', 'construction_vehicle', 'bus', 'trailer',
 DATA_CONFIG:
   _BASE_CONFIG_: cfgs/dataset_configs/nuscenes_dataset.yaml
 
-  # SAMPLED_INTERVAL: {'train': 1, 'test': 1}
+  SAMPLED_INTERVAL: {'train': 14, 'test': 1}
   BALANCED_RESAMPLING: False # not use CBGS!!!
 
   POINT_CLOUD_RANGE: [-54.0, -54.0, -5.0, 54.0, 54.0, 3.0]
@@ -69,7 +69,7 @@ MODEL:
         NUM_FILTERS: [128, 128]
 
     BACKBONE_3D:
-        NAME: LION3DBackboneHilbert
+        NAME: LION3DBackboneOneStride
         FEATURE_DIM: 128
         LAYER_DIM: [128, 128, 128, 128]
         NUM_LAYERS: 4
@@ -80,7 +80,6 @@ MODEL:
         DIRECTION: ['x', 'y']
         DIFF_SCALE: 0.2
         DIFFUSION:  True #False #True
-        SCAN_VERSION: 1
         SHIFT: True
         OPERATOR:
           NAME: 'Mamba'
@@ -89,8 +88,6 @@ MODEL:
             d_conv: 4
             expand: 2
             drop_path: 0.2
-        TEMPLATE_PATH: '../data/hilbert'
-        TEMPLATE_RANK: [7, 8, 9]
 
 
     MAP_TO_BEV:
@@ -182,8 +179,6 @@ OPTIMIZATION:
     NUM_EPOCHS: 36 #20
 
     OPTIMIZER: adam_onecycle
-    # LR: 0.003
-    # LR: 0.000375
     LR: 0.00075
     WEIGHT_DECAY: 0.05
     MOMENTUM: 0.9

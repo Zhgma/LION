@@ -17,7 +17,7 @@ click==8.1.7
 colorlog==6.8.2
 constantly==23.10.4
 contourpy==1.1.1
-cumm-cu118==0.4.11
+cumm-cu116==0.4.11
 cycler==0.12.1
 descartes==1.1.0
 distlib==0.3.8
@@ -58,14 +58,12 @@ jaraco.functools==4.0.1
 jaraco.text==3.12.1
 Jinja2==3.1.3
 joblib==1.4.2
-keras-nightly==2.5.0.dev2021032900
 Keras-Preprocessing==1.1.2
 kiwisolver==1.4.7
 kornia==0.5.8
 lark==1.1.9
 lazy_loader==0.3
 llvmlite==0.39.1
-mamba_ssm==1.1.1
 Markdown==3.4.1
 markdown-it-py==3.0.0
 MarkupSafe==2.1.1
@@ -119,7 +117,7 @@ Shapely==1.8.5.post1
 SharedArray==3.0.0
 simplejson==3.19.2
 six==1.15.0
-spconv-cu118==2.3.6
+spconv-cu116==2.3.6
 SQLAlchemy==1.4.54
 sympy==1.12
 tabulate==0.9.0

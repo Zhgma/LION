@@ -10,7 +10,7 @@ from ...utils import common_utils
 from ..dataset import DatasetTemplate
 from pyquaternion import Quaternion
 from PIL import Image
-
+import random
 
 class NuScenesDataset(DatasetTemplate):
     def __init__(self, dataset_cfg, class_names, training=True, root_path=None, logger=None):
@@ -42,8 +42,13 @@ class NuScenesDataset(DatasetTemplate):
                 infos = pickle.load(f)
                 nuscenes_infos.extend(infos)
 
+        nuscenes_infos = nuscenes_infos[::self.dataset_cfg.SAMPLED_INTERVAL[mode]]
         self.infos.extend(nuscenes_infos)
         self.logger.info('Total samples for NuScenes dataset: %d' % (len(nuscenes_infos)))
+        
+        # subset_size = len(nuscenes_infos) // self.dataset_cfg.SAMPLED_INTERVAL[mode]
+        # self.infos.extend(random.sample(nuscenes_infos, subset_size))
+        # self.logger.info('Total samples for Nuscenes dataset: %d'%(subset_size))
 
     def balanced_infos_resampling(self, infos):
         """
@@ -354,7 +359,7 @@ class NuScenesDataset(DatasetTemplate):
             pickle.dump(all_db_infos, f)
 
 
-def create_nuscenes_info(version, data_path, save_path, max_sweeps=10, with_cam=False, split=14):
+def create_nuscenes_info(version, data_path, save_path, max_sweeps=10, with_cam=False):
     from nuscenes.nuscenes import NuScenes
     from nuscenes.utils import splits
     from . import nuscenes_utils
@@ -363,8 +368,7 @@ def create_nuscenes_info(version, data_path, save_path, max_sweeps=10, with_cam=
 
     assert version in ['v1.0-trainval', 'v1.0-test', 'v1.0-mini']
     if version == 'v1.0-trainval':
-        train_scenes = splits.train[: len(splits.train) // split]
-        # train_scenes = splits.train
+        train_scenes = splits.train
         val_scenes = splits.val
     elif version == 'v1.0-test':
         train_scenes = splits.test
@@ -413,7 +417,6 @@ if __name__ == '__main__':
     parser.add_argument('--func', type=str, default='create_nuscenes_infos', help='')
     parser.add_argument('--version', type=str, default='v1.0-trainval', help='')
     parser.add_argument('--with_cam', action='store_true', default=False, help='use camera or not')
-    parser.add_argument('--split', type=int, default=1, help='split train')
     args = parser.parse_args()
 
     if args.func == 'create_nuscenes_infos':
@@ -426,7 +429,6 @@ if __name__ == '__main__':
             save_path=ROOT_DIR / 'data' / 'nuscenes',
             max_sweeps=dataset_cfg.MAX_SWEEPS,
             with_cam=args.with_cam,
-            split=args.split
         )
 
         nuscenes_dataset = NuScenesDataset(
