@@ -90,6 +90,7 @@ MODEL:
             drop_path: 0.2
         TEMPLATE_PATH: '../data/hilbert'
         TEMPLATE_RANK: [7, 8, 9]
+        USE_IMPLICIT_WINDOW: True
 
 
     MAP_TO_BEV:

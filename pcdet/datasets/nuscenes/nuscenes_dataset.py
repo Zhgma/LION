@@ -43,6 +43,7 @@ class NuScenesDataset(DatasetTemplate):
                 nuscenes_infos.extend(infos)
 
         # nuscenes_infos = nuscenes_infos[::self.dataset_cfg.SAMPLED_INTERVAL[mode]]
+        nuscenes_infos = nuscenes_infos[:len(nuscenes_infos)//self.dataset_cfg.SAMPLED_INTERVAL[mode]]
         self.infos.extend(nuscenes_infos)
         self.logger.info('Total samples for NuScenes dataset: %d' % (len(nuscenes_infos)))
         

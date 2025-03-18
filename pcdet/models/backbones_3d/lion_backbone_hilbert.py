@@ -443,29 +443,44 @@ class PositionEmbeddingLearned(nn.Module):
     Absolute pos embedding, learned.
     """
 
-    def __init__(self, input_channel, num_pos_feats, use_implicit_window=False):
+    def __init__(self, input_channel, num_pos_feats, use_implicit_window=False, window_size: float = 8.0, normalize_pos=False):
         super().__init__()
         self.use_implicit_window = use_implicit_window
-        self.position_embedding_head = nn.Sequential(
-            nn.Linear(input_channel, num_pos_feats),
-            nn.BatchNorm1d(num_pos_feats),
-            nn.ReLU(inplace=True),
-            nn.Linear(num_pos_feats, num_pos_feats))
+        self.window_size = window_size
+        self.normalize_pos = normalize_pos
+        if self.use_implicit_window:
+            self.position_embedding_head = nn.Sequential(
+                nn.Linear(9, num_pos_feats),
+                nn.BatchNorm1d(num_pos_feats),
+                nn.ReLU(inplace=True),
+                nn.Linear(num_pos_feats, num_pos_feats))
+        else:
+            self.position_embedding_head = nn.Sequential(
+                nn.Linear(input_channel, num_pos_feats),
+                nn.BatchNorm1d(num_pos_feats),
+                nn.ReLU(inplace=True),
+                nn.Linear(num_pos_feats, num_pos_feats))
 
 
     def forward(
         self,
         coords: torch.Tensor,
         # batch_size: int,
-        sparse_shape: list = [0, 0, 0]
+        sparse_shape: list = [0, 0, 0],
     ):
         if self.use_implicit_window:
             position_embedding_coords = torch.zeros([coords.shape[0], 9], device=coords.device, dtype=torch.float32)
             position_embedding_coords[:, 0] = coords[:, 1] / sparse_shape[0]
-            position_embedding_coords[:, 1:3] = (coords[:, 2:] // 12) / (sparse_shape[1]//12 + 1)
-            position_embedding_coords[:, 3:5] = (coords[:, 2:] % 12) / 12.0
-            position_embedding_coords[:, 5:7] = ((coords[:, 2:] + 6) // 12) / (sparse_shape[1]//12 + 1)
-            position_embedding_coords[:, 7:9] = ((coords[:, 2:] + 6) % 12) / 12.0
+            position_embedding_coords[:, 1:3] = \
+                (coords[:, 2:] // self.window_size) / (sparse_shape[1] // self.window_size + 1)
+            position_embedding_coords[:, 3:5] = \
+                (coords[:, 2:] % self.window_size) / self.window_size
+            position_embedding_coords[:, 5:7] = \
+                ((coords[:, 2:] + self.window_size / 2) // self.window_size) / (sparse_shape[1] // self.window_size + 1)
+            position_embedding_coords[:, 7:9] = \
+                ((coords[:, 2:] + self.window_size / 2) % self.window_size) / self.window_size
+            if self.normalize_pos:
+                position_embedding_coords = (position_embedding_coords * 2 - 1) * 3.1415
             position_embedding = self.position_embedding_head(position_embedding_coords.float())
         else:
             position_embedding = self.position_embedding_head(coords.float())
@@ -491,11 +506,12 @@ class PositionEmbeddingLearned(nn.Module):
 
 class LIONBlockHilbert(nn.Module):
     def __init__(self, dim: int, depth: int, down_scales: list, window_shape, group_size, direction, shift=False,
-                 operator=None, layer_id=0, n_layer=0, scan_version=0, template=None):
+                 operator=None, layer_id=0, n_layer=0, scan_version=0, template=None, use_implicit_window=False, window_size=8.0):
         super().__init__()
 
         self.down_scales = down_scales
         self.scan_version = scan_version
+        self.use_implicit_window = use_implicit_window
         num_seq = NUM_SEQ[scan_version]
 
         self.encoder = nn.ModuleList()
@@ -508,7 +524,7 @@ class LIONBlockHilbert(nn.Module):
         for idx in range(depth):
             # self.encoder.append(LIONLayerHilbert(dim, 1, window_shape, group_size, direction, shift[idx], operator, layer_id + idx * 2, n_layer, template))
             self.encoder.append(LIONLayerHilbert(dim, 1, window_shape, group_size, direction, shift[idx], operator, layer_id + num_seq * idx , n_layer, scan_version, template))
-            self.pos_emb_list.append(PositionEmbeddingLearned(input_channel=3, num_pos_feats=dim))
+            self.pos_emb_list.append(PositionEmbeddingLearned(input_channel=3, num_pos_feats=dim, use_implicit_window=use_implicit_window, window_size=window_size))
             self.downsample_list.append(PatchMerging3D(dim, dim, down_scale=down_scales[idx], norm_layer=norm_fn))
 
         self.decoder = nn.ModuleList()
@@ -527,8 +543,11 @@ class LIONBlockHilbert(nn.Module):
         index = []
 
         for idx, enc in enumerate(self.encoder):
-            pos_emb = self.get_pos_embed(spatial_shape=x.spatial_shape, coors=x.indices[:, 1:],
-                                         embed_layer=self.pos_emb_list[idx])
+            if self.use_implicit_window:
+                pos_emb = self.pos_emb_list[idx](x.indices, x.spatial_shape)
+            else:
+                pos_emb = self.get_pos_embed(spatial_shape=x.spatial_shape, coors=x.indices[:, 1:],
+                                             embed_layer=self.pos_emb_list[idx])
 
             x = replace_feature(x, pos_emb + x.features)  # x + pos_emb
             x = enc(x)
@@ -613,6 +632,8 @@ class LION3DBackboneHilbert(nn.Module):
         diffusion = model_cfg.DIFFUSION
         shift = model_cfg.SHIFT
         diff_scale = model_cfg.DIFF_SCALE
+        use_implicit_window = model_cfg.get('USE_IMPLICIT_WINDOW', False)
+        window_size = model_cfg.get('WINDOW_SIZE', 8.0)
         self.window_shape = model_cfg.WINDOW_SHAPE
         self.group_size = model_cfg.GROUP_SIZE
         self.layer_dim = model_cfg.LAYER_DIM
@@ -688,7 +709,9 @@ class LION3DBackboneHilbert(nn.Module):
                 layer_id=sum(depths[:i]) * 2 if i > 0 else 0,
                 n_layer=self.n_layer,
                 scan_version=self.scan_version,
-                template=self.template
+                template=self.template,
+                use_implicit_window=use_implicit_window,
+                window_size=window_size
                 )
             for i in range(num_layers)
 
